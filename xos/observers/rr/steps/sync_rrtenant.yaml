@@ -1,0 +1,128 @@
+---
+- hosts: {{ sliver_name }}
+  gather_facts: False
+  connection: ssh
+  user: ubuntu
+  sudo: yes
+  vars:
+      cdn_enable: {{ cdn_enable }}
+      dnsdemux_ip: {{ dnsdemux_ip }}
+      firewall_enable: {{ firewall_enable }}
+      url_filter_enable: {{ url_filter_enable }}
+      vlan_ids:
+        {% for vlan_id in vlan_ids %}
+        - {{ vlan_id }}
+        {% endfor %}
+      firewall_rules:
+        {% for firewall_rule in firewall_rules.split("\n") %}
+        - {{ firewall_rule }}
+        {% endfor %}
+      cdn_prefixes:
+        {% for prefix in cdn_prefixes %}
+        - {{ prefix }}
+        {% endfor %}
+      bbs_addrs:
+        {% for bbs_addr in bbs_addrs %}
+        - {{ bbs_addr }}
+        {% endfor %}
+      nat_ip: {{ nat_ip }}
+      lan_ip: {{ lan_ip }}
+      wan_ip: {{ wan_ip }}
+      private_ip: {{ private_ip }}
+      hpc_client_ip: {{ hpc_client_ip }}
+      wan_mac: {{ wan_mac }}
+
+  tasks:
+{% if full_setup %}
+  - name: Docker repository
+    copy: src=/opt/xos/observers/vcpe/files/docker.list
+      dest=/etc/apt/sources.list.d/docker.list
+
+  - name: Import the repository key
+    apt_key: keyserver=keyserver.ubuntu.com id=36A1D7869245C8950F966E92D8576A8BA88D21E9
+
+  - name: install Docker
+    apt: name=lxc-docker-1.5.0 state=present update_cache=yes
+
+  - name: install python-setuptools
+    apt: name=python-setuptools state=present
+
+  - name: install pip
+    easy_install: name=pip
+
+  - name: install docker-py
+    pip: name=docker-py version=0.5.3
+
+  - name: install Pipework
+    get_url: url=https://raw.githubusercontent.com/jpetazzo/pipework/master/pipework
+       dest=/usr/local/bin/pipework
+       mode=0755
+
+  - name: make sure /etc/dnsmasq.d exists
+    file: path=/etc/dnsmasq.d state=directory owner=root group=root
+
+  - name: Disable resolvconf service
+    shell: service resolvconf stop
+    shell: echo manual > /etc/init/resolvconf.override
+    shell: rm -f /etc/resolv.conf
+
+  - name: Install resolv.conf
+    copy src=/opt/xos/observers/vcpe/files/vm-resolv.conf
+      dest=/etc/resolv.conf
+{% endif %}
+
+  - name: vCPE upstart
+    template: src=/opt/xos/observers/vcpe/templates/vcpe.conf.j2 dest=/etc/init/vcpe-{{ vlan_ids[0] }}.conf
+
+  - name: vCPE startup script
+    template: src=/opt/xos/observers/vcpe/templates/start-vcpe.sh.j2 dest=/usr/local/sbin/start-vcpe-{{ vlan_ids[0] }}.sh mode=0755
+    notify:
+#    - restart vcpe
+     - stop vcpe
+     - remove container
+     - start vcpe
+
+  - name: create /etc/vcpe-{{ vlan_ids[0] }}/dnsmasq.d
+    file: path=/etc/vcpe-{{ vlan_ids[0] }}/dnsmasq.d state=directory owner=root group=root
+
+  - name: vCPE basic dnsmasq config
+    copy: src=/opt/xos/observers/vcpe/files/vcpe.dnsmasq dest=/etc/vcpe-{{ vlan_ids[0] }}/dnsmasq.d/vcpe.conf owner=root group=root
+    notify:
+    - stop dnsmasq
+    - start dnsmasq
+
+  - name: dnsmasq config
+    template: src=/opt/xos/observers/vcpe/templates/dnsmasq_servers.j2 dest=/etc/vcpe-{{ vlan_ids[0] }}/dnsmasq.d/servers.conf owner=root group=root
+    notify:
+    - stop dnsmasq
+    - start dnsmasq
+
+# These are samples, not necessary for correct function of demo
+
+#  - name: networking info
+#    template: src=/opt/xos/observers/vcpe/templates/vlan_sample.j2 dest=/etc/vlan_sample owner=root group=root
+
+#  - name: firewall info
+#    template: src=/opt/xos/observers/vcpe/templates/firewall_sample.j2 dest=/etc/firewall_sample owner=root group=root
+
+  - name: Make sure vCPE service is running
+    service: name=vcpe-{{ vlan_ids[0] }} state=started
+
+  handlers:
+  - name: stop dnsmasq
+    shell: docker exec vcpe-{{ vlan_ids[0] }} /usr/bin/killall dnsmasq
+
+  - name: start dnsmasq
+    shell: docker exec vcpe-{{ vlan_ids[0] }} /usr/sbin/service dnsmasq start
+
+  - name: restart vcpe
+    shell: service vcpe-{{ vlan_ids[0] }} stop; sleep 1; service vcpe-{{ vlan_ids[0] }} start
+
+  - name: stop vcpe
+    service: name=vcpe-{{ vlan_ids[0] }} state=stopped
+
+  - name: remove container
+    docker: name=vcpe-{{ vlan_ids[0] }} state=absent image=docker-vcpe
+
+  - name: start vcpe
+    service: name=vcpe-{{ vlan_ids[0] }} state=started
