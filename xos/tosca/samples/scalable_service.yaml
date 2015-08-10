@@ -1,0 +1,17 @@
+tosca_definitions_version: tosca_simple_yaml_1_0
+
+description: Template for deploying a single server with predefined properties.
+
+imports:
+   - custom_types/xos.yaml
+
+topology_template:
+  node_templates:
+    scalable_service:
+      type: tosca.nodes.Service
+      capabilities:
+          scalable:
+              properties:
+                  max_instances: 25
+                  min_instances: 1
+                  default_instances: 1

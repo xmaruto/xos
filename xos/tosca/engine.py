@@ -32,6 +32,7 @@ class XOSTosca(object):
 
         self.ordered_nodetemplates = []
         self.ordered_names = self.topsort_dependencies()
+        print "ordered_names", self.ordered_names
         for name in self.ordered_names:
             if name in self.nodetemplates_by_name:
                 self.ordered_nodetemplates.append(self.nodetemplates_by_name[name])
@@ -54,6 +55,15 @@ class XOSTosca(object):
                     if (name in nodetemplates_by_name):
                         nodetemplate.dependencies.append(nodetemplates_by_name[name])
                         nodetemplate.dependencies_names.append(name)
+
+                    # go another level deep, as our requirements can have requirements...
+                    for sd_req in v.get("requirements",[]):
+                        for (sd_req_k, sd_req_v) in sd_req.items():
+                            name = sd_req_v["node"]
+                            if (name in nodetemplates_by_name):
+                                nodetemplate.dependencies.append(nodetemplates_by_name[name])
+                                nodetemplate.dependencies_names.append(name)
+
 
     def topsort_dependencies(self):
         # stolen from observer
@@ -105,21 +115,14 @@ class XOSTosca(object):
 	return order + noorder
 
     def execute(self, user):
-        for nodetemplate in self.ordered_nodetemplates: # self.template.nodetemplates:
+        for nodetemplate in self.ordered_nodetemplates:
             self.execute_nodetemplate(user, nodetemplate)
 
     def execute_nodetemplate(self, user, nodetemplate):
         if nodetemplate.type in resources.resources:
             cls = resources.resources[nodetemplate.type]
             #print "work on", cls.__name__, nodetemplate.name
-            obj = cls(user, nodetemplate)
-            obj.create_or_update()
-
-    def execute_nodetemplate(self, user, nodetemplate):
-        if nodetemplate.type in resources.resources:
-            cls = resources.resources[nodetemplate.type]
-            print "work on", cls.__name__, nodetemplate.name
-            obj = cls(user, nodetemplate)
+            obj = cls(user, nodetemplate, self)
             obj.create_or_update()
 
     def destroy(self, user):
@@ -128,10 +131,30 @@ class XOSTosca(object):
         for nodetemplate in nodetemplates:
             if nodetemplate.type in resources.resources:
                 cls = resources.resources[nodetemplate.type]
-                obj = cls(user, nodetemplate)
-                models = models + list(obj.get_existing_objs())
+                obj = cls(user, nodetemplate, self)
+                for model in obj.get_existing_objs():
+                    models.append( (obj, model) )
         models.reverse()
-        for model in models:
+        for (resource,model) in models:
             print "destroying", model
-            model.delete(purge=True) # XXX change before deploying
+            resource.delete(model)
+
+    def name_to_xos_class(self, user, name):
+        nt = self.nodetemplates_by_name.get(name)
+        if not nt:
+            raise Exception("failed to find nodetemplate %s" % name)
+
+        cls = resources.resources.get(nt.type)
+        if not cls:
+            raise Exception("nodetemplate %s's type does not resolve to a known resource type" % name)
+
+        return (nt, cls, cls.xos_model)
+
+    def name_to_xos_model(self, user, name):
+        (nt, cls, model_class) = self.name_to_xos_class(user, name)
+        obj = cls(user, nt, self)
+        existing_objs = obj.get_existing_objs()
+        if not existing_objs:
+            raise Exception("failed to find xos %s %s" % (cls.__name__, name))
+        return existing_objs[0]
 

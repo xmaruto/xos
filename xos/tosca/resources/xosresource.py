@@ -5,10 +5,11 @@ class XOSResource(object):
     xos_model = None
     provides = None
 
-    def __init__(self, user, nodetemplate):
+    def __init__(self, user, nodetemplate, engine):
         self.dirty = False
         self.user = user
         self.nodetemplate = nodetemplate
+        self.engine = engine
 
     def get_all_required_node_names(self):
         results = []
@@ -48,6 +49,9 @@ class XOSResource(object):
         else:
             return {}
 
+    def get_property(self, name):
+        return self.nodetemplate.get_property_value(name)
+
     def get_xos_object(self, cls, **kwargs):
         objs = cls.objects.filter(**kwargs)
         if not objs:
@@ -73,6 +77,9 @@ class XOSResource(object):
 
     def update(self, obj):
         pass
+
+    def delete(self, obj):
+        obj.delete(purge=True)   # XXX TODO: turn off purge before production
 
     def info(self, s):
         print s
