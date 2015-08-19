@@ -20,6 +20,7 @@ class SyncSlivers(OpenStackSyncStep):
     provides=[Sliver]
     requested_interval=0
     observes=Sliver
+    playbook='sync_slivers.yaml'
 
     def get_userdata(self, sliver, pubkeys):
         userdata = '#cloud-config\n\nopencloud:\n   slicename: "%s"\n   hostname: "%s"\n   restapi_hostname: "%s"\n   restapi_port: "%s"\n' % (sliver.slice.name, sliver.node.name, RESTAPI_HOSTNAME, str(RESTAPI_PORT))
@@ -28,14 +29,9 @@ class SyncSlivers(OpenStackSyncStep):
             userdata += '  - %s\n' % key
         return userdata
 
-    def sync_record(self, sliver):
-        logger.info("sync'ing sliver:%s slice:%s controller:%s " % (sliver, sliver.slice.name, sliver.node.site_deployment.controller))
-        controller_register = json.loads(sliver.node.site_deployment.controller.backend_register)
-
-        if (controller_register.get('disabled',False)):
-            raise InnocuousException('Controller %s is disabled'%sliver.node.site_deployment.controller.name)
-
-        metadata_update = {}
+    def map_sync_inputs(self, sliver):
+        inputs = {}
+	metadata_update = {}
         if (sliver.numberCores):
             metadata_update["cpu_cores"] = str(sliver.numberCores)
 
@@ -43,8 +39,7 @@ class SyncSlivers(OpenStackSyncStep):
             if tag.name.startswith("sysctl-"):
                 metadata_update[tag.name] = tag.value
 
-        # public keys
-        slice_memberships = SlicePrivilege.objects.filter(slice=sliver.slice)
+	slice_memberships = SlicePrivilege.objects.filter(slice=sliver.slice)
         pubkeys = set([sm.user.public_key for sm in slice_memberships if sm.user.public_key])
         if sliver.creator.public_key:
             pubkeys.add(sliver.creator.public_key)
@@ -97,7 +92,7 @@ class SyncSlivers(OpenStackSyncStep):
                     image_name = image.name
                     logger.info("using image from glance: " + str(image_name))
 
-        try:
+	try:
             legacy = Config().observer_legacy
         except:
             legacy = False
@@ -115,7 +110,7 @@ class SyncSlivers(OpenStackSyncStep):
             userData = sliver.userData
 
         controller = sliver.node.site_deployment.controller
-        tenant_fields = {'endpoint':controller.auth_url,
+        fields = {'endpoint':controller.auth_url,
                      'admin_user': sliver.creator.email,
                      'admin_password': sliver.creator.remote_password,
                      'admin_tenant': sliver.slice.name,
@@ -129,12 +124,14 @@ class SyncSlivers(OpenStackSyncStep):
                      'nics':nics,
                      'meta':metadata_update,
                      'user_data':r'%s'%escape(userData)}
+        return fields
 
-        res = run_template('sync_slivers.yaml', tenant_fields,path='slivers', expected_num=1)
-        sliver_id = res[0]['info']['OS-EXT-SRV-ATTR:instance_name']
+
+    def map_sync_outputs(self, sliver, res):
+	sliver_id = res[0]['info']['OS-EXT-SRV-ATTR:instance_name']
         sliver_uuid = res[0]['id']
 
-        try:
+	try:
             hostname = res[0]['info']['OS-EXT-SRV-ATTR:hypervisor_hostname']
             ip = socket.gethostbyname(hostname)
             sliver.ip = ip
@@ -145,8 +142,9 @@ class SyncSlivers(OpenStackSyncStep):
         sliver.instance_uuid = sliver_uuid
         sliver.instance_name = sliver_name
         sliver.save()
-
-    def delete_record(self, sliver):
+	
+	
+    def map_delete_inputs(self, sliver):
         controller_register = json.loads(sliver.node.site_deployment.controller.backend_register)
 
         if (controller_register.get('disabled',False)):
@@ -154,7 +152,7 @@ class SyncSlivers(OpenStackSyncStep):
 
         sliver_name = '%s-%d'%(sliver.slice.name,sliver.id)
         controller = sliver.node.site_deployment.controller
-        tenant_fields = {'endpoint':controller.auth_url,
+        input = {'endpoint':controller.auth_url,
                      'admin_user': sliver.creator.email,
                      'admin_password': sliver.creator.remote_password,
                      'admin_tenant': sliver.slice.name,
@@ -163,14 +161,4 @@ class SyncSlivers(OpenStackSyncStep):
                      'name':sliver_name,
                      'ansible_tag':sliver_name,
                      'delete': True}
-
-        try:
-            res = run_template('sync_slivers.yaml', tenant_fields,path='slivers', expected_num=1)
-        except Exception,e:
-            print "Could not sync %s"%sliver_name
-            #import traceback
-            #traceback.print_exc()
-            raise e
-
-        if (len(res)!=1):
-            raise Exception('Could not delete sliver %s'%sliver.slice.name)
+        return input
