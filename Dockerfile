@@ -1,6 +1,8 @@
 FROM       ubuntu:14.04.2
 MAINTAINER Andy Bavier <acb@cs.princeton.edu>
 
+SETENV XOS_BRANCH master
+
 # XXX Workaround for docker bug:
 # https://github.com/docker/docker/issues/6345
 # Kernel 3.15 breaks docker, uss the line below as a workaround
@@ -98,7 +100,8 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get install -y supervisor
 ADD observer.conf /etc/supervisor/conf.d/
 
 # Get XOS 
-ADD xos /opt/xos
+RUN mkdir -p /opt/xos
+RUN git clone -b $XOS_BRANCH git://github.com/open-cloud/xos.git /opt/xos
 
 # Initscript is broken in Ubuntu
 #ADD observer-initscript /etc/init.d/xosobserver
