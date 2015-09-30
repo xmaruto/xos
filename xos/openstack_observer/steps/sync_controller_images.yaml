@@ -5,10 +5,4 @@
   - shell: ENDPOINT={{endpoint_v3}} USERNAME={{admin_user}} PASSWORD={{admin_password}} TENANT=admin DOMAIN={{domain}} /opt/xos/openstack/get_token.sh
     register: token
 
-  - glance_image:
-        auth_url={{ endpoint }}
-        token={{ '{{' }} token.stdout {{ '}}' }}
-        name="{{ name }}"
-        file="{{ filepath }}"
-        disk_format='raw'
-        is_public=true
+  - shell: ID=$(/usr/bin/glance --os-image-url={{image_url}} --os-auth-token={{ '{{' }} token.stdout {{ '}}' }}  image-create --name="{{name}}" --disk-format=raw --is-public=True --file="{{filepath}}") && echo "{\"id\": \"$ID\" }" | python -m json.tool 

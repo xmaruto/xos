@@ -5,6 +5,8 @@
   - shell: ENDPOINT={{endpoint_v3}} USERNAME={{admin_user}} PASSWORD={{admin_password}} TENANT={{tenant_name}} DOMAIN={{domain}} /opt/xos/openstack/get_token.sh
     register: token
 
+  - shell: ID=$(/usr/bin/neutron --os-url "{{os_url}}" --os-token {{ '{{' }} token.stdout {{ '}}' }} net-create {{name}} --shared True ) && echo "{\"id\": \"$ID\" }" | python -m json.tool
+
   - quantum_network:
         auth_url={{ endpoint }}
         token={{ '{{' }} token.stdout {{ '}}' }}
